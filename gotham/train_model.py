@@ -68,7 +68,7 @@ def random_train_test_split(df, test_fraction, seed):
 
 def evaluate(name: str, y_true, y_pred, venue_capacity_series=None):
     mae = mean_absolute_error(y_true, y_pred)
-    rmse = mean_squared_error(y_true, y_pred, squared=False)
+    rmse = mean_squared_error(y_true, y_pred) ** 0.5
     r2 = r2_score(y_true, y_pred)
     print(f"\n{name}:")
     print(f"  MAE (fill rate):  {mae:.4f}  ({mae*100:.1f}% of capacity)")
