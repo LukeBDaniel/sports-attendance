@@ -12,7 +12,6 @@ import joblib
 import numpy as np
 import pandas as pd
 import requests
-import shap
 import matplotlib
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -53,12 +52,7 @@ RIVALRIES = {"Portland Thorns FC", "North Carolina Courage", "Chicago Red Stars"
 def load_model():
     if not os.path.exists(MODEL_FILE):
         return None
-    bundle = joblib.load(MODEL_FILE)
-    # Recreate SHAP explainer from the model at runtime — avoids numba pickle
-    # incompatibility across Python/library versions on different environments.
-    if bundle.get("explainer") is None:
-        bundle["explainer"] = shap.TreeExplainer(bundle["model"])
-    return bundle
+    return joblib.load(MODEL_FILE)
 
 
 @st.cache_data
@@ -139,42 +133,38 @@ def build_features(
     return pd.DataFrame([row])[features]
 
 
-# ── SHAP waterfall chart ───────────────────────────────────────────────────────
-def shap_waterfall_fig(explainer, X_row: pd.DataFrame) -> plt.Figure:
-    shap_vals = explainer(X_row)
+# ── Contribution chart ─────────────────────────────────────────────────────────
+LABEL_MAP = {
+    "season": "Season (League Growth)",
+    "day_of_week": "Day of Week",
+    "month": "Month",
+    "is_weekend": "Weekend Game",
+    "is_evening": "Evening Kickoff",
+    "temperature_f": "Temperature (°F)",
+    "precipitation_mm": "Precipitation (mm)",
+    "home_win_rate_last5": "Gotham Recent Form",
+    "opp_win_rate_season": "Opponent Strength",
+    "is_rivalry": "Rivalry Match",
+    "venue_capacity": "Venue Capacity",
+    "season_progress": "Season Progress",
+}
+
+def contribution_fig(model, X_row: pd.DataFrame, train_means: dict) -> plt.Figure:
+    features = X_row.columns.tolist()
+    current_pred = float(model.predict(X_row)[0])
+    mean_row = pd.DataFrame([{f: train_means.get(f, X_row[f].iloc[0]) for f in features}])
+    contributions = {}
+    for feat in features:
+        perturbed = X_row.copy()
+        perturbed[feat] = train_means.get(feat, X_row[feat].iloc[0])
+        contributions[feat] = current_pred - float(model.predict(perturbed)[0])
+    contrib = pd.Series(contributions).rename(LABEL_MAP)
+    contrib = contrib.reindex(contrib.abs().sort_values().index)
     fig, ax = plt.subplots(figsize=(7, 4))
-
-    # Build a waterfall manually for clean display
-    vals = shap_vals.values[0]
-    base = float(shap_vals.base_values[0])
-    feat_names = X_row.columns.tolist()
-
-    # Sort by absolute value
-    order = np.argsort(np.abs(vals))[::-1]
-    vals_sorted = vals[order]
-    names_sorted = [feat_names[i] for i in order]
-
-    # Friendly label map
-    label_map = {
-        "season": "Season (League Growth)",
-        "day_of_week": "Day of Week",
-        "month": "Month",
-        "is_weekend": "Weekend Game",
-        "is_evening": "Evening Kickoff",
-        "temperature_f": "Temperature (°F)",
-        "precipitation_mm": "Precipitation (mm)",
-        "home_win_rate_last5": "Gotham Recent Form",
-        "opp_win_rate_season": "Opponent Strength",
-        "is_rivalry": "Rivalry Match",
-        "venue_capacity": "Venue Capacity",
-        "season_progress": "Season Progress",
-    }
-    names_sorted = [label_map.get(n, n) for n in names_sorted]
-
-    colors = ["#2ecc71" if v > 0 else "#e74c3c" for v in vals_sorted]
-    ax.barh(names_sorted[::-1], vals_sorted[::-1], color=colors[::-1])
+    colors = ["#2ecc71" if v > 0 else "#e74c3c" for v in contrib]
+    ax.barh(contrib.index, contrib.values, color=colors)
     ax.axvline(0, color="black", linewidth=0.8)
-    ax.set_xlabel("SHAP value (impact on predicted fill rate)")
+    ax.set_xlabel("Impact on predicted fill rate")
     ax.set_title("What's driving this prediction?", fontsize=12, fontweight="bold")
     for spine in ["top", "right"]:
         ax.spines[spine].set_visible(False)
@@ -207,10 +197,10 @@ def main():
         )
         return
 
-    model = bundle["model"]
-    explainer = bundle["explainer"]
-    features = bundle["features"]
-    metrics = bundle["metrics"]
+    model       = bundle["model"]
+    train_means = bundle.get("train_means", {})
+    features    = bundle["features"]
+    metrics     = bundle["metrics"]
 
     # ── Sidebar inputs ──────────────────────────────────────────────────────────
     with st.sidebar:
@@ -317,12 +307,11 @@ def main():
         st.subheader("What's Driving This Prediction?")
         st.markdown(
             "Each bar shows how much a feature pushes the predicted fill rate "
-            "above (green) or below (red) the league average. "
-            "Multiply by 25,189 to convert to fans."
+            "above (green) or below (red) the training average."
         )
-        shap_fig = shap_waterfall_fig(explainer, X)
-        st.pyplot(shap_fig, use_container_width=True)
-        plt.close(shap_fig)
+        contrib_fig = contribution_fig(model, X, train_means)
+        st.pyplot(contrib_fig, use_container_width=True)
+        plt.close(contrib_fig)
 
     with right:
         st.subheader("Gotham FC — Attendance History")

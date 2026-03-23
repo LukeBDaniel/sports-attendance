@@ -351,13 +351,9 @@ def load_metrics(path: str) -> dict | None:
 
 @st.cache_resource
 def load_model(path: str):
-    """Full loader — also builds SHAP explainer. Only called for the active team."""
     if not os.path.exists(path):
         return None
-    bundle = joblib.load(path)
-    if bundle.get("explainer") is None:
-        bundle["explainer"] = shap.TreeExplainer(bundle["model"])
-    return bundle
+    return joblib.load(path)
 
 
 @st.cache_data
@@ -432,24 +428,34 @@ def build_features(cfg, date, opponent, is_evening, temperature_f,
     return pd.DataFrame([row])[features]
 
 
-# ── SHAP waterfall ─────────────────────────────────────────────────────────────
-def shap_waterfall_fig(explainer, X_row, cfg, accent_color) -> plt.Figure:
-    shap_vals = explainer(X_row)
-    vals = shap_vals.values[0]
-    feat_names = X_row.columns.tolist()
+# ── Contribution chart ─────────────────────────────────────────────────────────
+def contribution_fig(model, X_row, train_means, cfg) -> plt.Figure:
+    """
+    Leave-one-out feature contributions: for each feature, replace its value
+    with the training mean and measure the drop in predicted fill rate.
+    This gives an interpretable per-prediction breakdown without any extra library.
+    """
+    features = X_row.columns.tolist()
+    current_pred = float(model.predict(X_row)[0])
 
-    order = np.argsort(np.abs(vals))[::-1]
-    vals_sorted = vals[order]
-    names_sorted = [feat_names[i] for i in order]
+    mean_row = pd.DataFrame([{f: train_means.get(f, X_row[f].iloc[0]) for f in features}])
+    base_pred = float(model.predict(mean_row)[0])
+
+    contributions = {}
+    for feat in features:
+        perturbed = X_row.copy()
+        perturbed[feat] = train_means.get(feat, X_row[feat].iloc[0])
+        contributions[feat] = current_pred - float(model.predict(perturbed)[0])
 
     label_map = {**SHAP_BASE_LABELS, **cfg["shap_labels"]}
-    names_sorted = [label_map.get(n, n) for n in names_sorted]
+    contrib = pd.Series(contributions).rename(label_map)
+    contrib = contrib.reindex(contrib.abs().sort_values().index)
 
     fig, ax = plt.subplots(figsize=(7, 4))
-    colors = ["#2ecc71" if v > 0 else "#e74c3c" for v in vals_sorted]
-    ax.barh(names_sorted[::-1], vals_sorted[::-1], color=colors[::-1])
+    colors = ["#2ecc71" if v > 0 else "#e74c3c" for v in contrib]
+    ax.barh(contrib.index, contrib.values, color=colors)
     ax.axvline(0, color="black", linewidth=0.8)
-    ax.set_xlabel("SHAP value (impact on predicted fill rate)")
+    ax.set_xlabel("Impact on predicted fill rate")
     ax.set_title("What's driving this prediction?", fontsize=12, fontweight="bold")
     for spine in ["top", "right"]:
         ax.spines[spine].set_visible(False)
@@ -541,7 +547,7 @@ def main():
 - COVID-era seasons excluded (no fans / restricted capacity)
 
 **Explainability**
-- SHAP values show which factors drive each prediction above or below the historical average
+- Leave-one-out feature contributions show which factors drive each prediction above or below the historical average
             """)
         with col_b:
             st.subheader("Features used")
@@ -587,10 +593,10 @@ def main():
         )
         return
 
-    model     = bundle["model"]
-    explainer = bundle["explainer"]
-    features  = bundle["features"]
-    metrics   = bundle["metrics"]
+    model       = bundle["model"]
+    train_means = bundle.get("train_means", {})
+    features    = bundle["features"]
+    metrics     = bundle["metrics"]
 
     # ── Sidebar inputs ──────────────────────────────────────────────────────────
     with st.sidebar:
@@ -673,9 +679,9 @@ def main():
             "Each bar shows how much a feature pushes the predicted fill rate "
             "above (green) or below (red) the average."
         )
-        fig_shap = shap_waterfall_fig(explainer, X, cfg, cfg["accent_color"])
-        st.pyplot(fig_shap, use_container_width=True)
-        plt.close(fig_shap)
+        fig_contrib = contribution_fig(model, X, train_means, cfg)
+        st.pyplot(fig_contrib, use_container_width=True)
+        plt.close(fig_contrib)
 
     with right:
         st.subheader("Attendance History")

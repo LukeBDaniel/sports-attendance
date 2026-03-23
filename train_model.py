@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.ensemble import GradientBoostingRegressor
+
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
@@ -112,14 +113,13 @@ def main():
     gb_preds = gb.predict(X_test)
     metrics = evaluate("Gradient Boosting", y_test, gb_preds, test_df["venue_capacity"])
 
-    # SHAP
-    print("\nComputing SHAP values...")
-    explainer = shap.TreeExplainer(gb)
-    shap_vals = explainer(X_train)
-
+    # Feature importance bar chart (model.feature_importances_)
+    importances = pd.Series(gb.feature_importances_, index=FEATURES).sort_values()
     fig, ax = plt.subplots(figsize=(8, 5))
-    shap.plots.bar(shap_vals, max_display=len(FEATURES), ax=ax, show=False)
-    ax.set_title(f"{TEAM.title()} — Feature Importance (mean |SHAP|)", fontsize=13)
+    importances.plot.barh(ax=ax, color="#2ecc71")
+    ax.set_title(f"{TEAM.title()} — Feature Importance", fontsize=13)
+    ax.set_xlabel("Importance")
+    for spine in ["top", "right"]: ax.spines[spine].set_visible(False)
     plt.tight_layout()
     fig.savefig(os.path.join(DATA_DIR, "feature_importance.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -135,10 +135,13 @@ def main():
     plt.close(fig)
 
     bundle = {
-        "model": gb, "explainer": None, "features": FEATURES,  # explainer recreated at load time
+        "model": gb,
+        "features": FEATURES,
+        "train_means": X_train.mean().to_dict(),  # used for per-prediction contributions
         "metrics": metrics,
         "train_years": sorted(train_df["season"].unique().tolist()),
-        "test_fraction": TEST_FRACTION, "baseline_mae": baseline["mae"],
+        "test_fraction": TEST_FRACTION,
+        "baseline_mae": baseline["mae"],
     }
     joblib.dump(bundle, MODEL_FILE)
     print(f"\nModel saved → {MODEL_FILE}")
