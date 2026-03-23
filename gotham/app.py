@@ -53,7 +53,12 @@ RIVALRIES = {"Portland Thorns FC", "North Carolina Courage", "Chicago Red Stars"
 def load_model():
     if not os.path.exists(MODEL_FILE):
         return None
-    return joblib.load(MODEL_FILE)
+    bundle = joblib.load(MODEL_FILE)
+    # Recreate SHAP explainer from the model at runtime — avoids numba pickle
+    # incompatibility across Python/library versions on different environments.
+    if bundle.get("explainer") is None:
+        bundle["explainer"] = shap.TreeExplainer(bundle["model"])
+    return bundle
 
 
 @st.cache_data

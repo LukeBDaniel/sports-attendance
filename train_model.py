@@ -135,7 +135,7 @@ def main():
     plt.close(fig)
 
     bundle = {
-        "model": gb, "explainer": explainer, "features": FEATURES,
+        "model": gb, "explainer": None, "features": FEATURES,  # explainer recreated at load time
         "metrics": metrics,
         "train_years": sorted(train_df["season"].unique().tolist()),
         "test_fraction": TEST_FRACTION, "baseline_mae": baseline["mae"],

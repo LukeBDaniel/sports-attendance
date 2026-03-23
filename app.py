@@ -345,7 +345,10 @@ YANKEES_RIVALRY_ABBRS = {"BOS", "NYM"}
 def load_model(path: str):
     if not os.path.exists(path):
         return None
-    return joblib.load(path)
+    bundle = joblib.load(path)
+    if bundle.get("explainer") is None:
+        bundle["explainer"] = shap.TreeExplainer(bundle["model"])
+    return bundle
 
 
 @st.cache_data

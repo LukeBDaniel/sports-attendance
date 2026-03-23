@@ -152,7 +152,7 @@ def main():
     # ── Save model bundle ──
     bundle = {
         "model": gb_model,
-        "explainer": explainer,
+        "explainer": None,  # recreated at load time to avoid pickle version issues
         "features": FEATURES,
         "metrics": {
             "mae": gb_metrics["mae"],

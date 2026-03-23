@@ -105,7 +105,10 @@ RIVALRY_ABBRS = {"BOS", "NYM"}
 def load_model():
     if not os.path.exists(MODEL_FILE):
         return None
-    return joblib.load(MODEL_FILE)
+    bundle = joblib.load(MODEL_FILE)
+    if bundle.get("explainer") is None:
+        bundle["explainer"] = shap.TreeExplainer(bundle["model"])
+    return bundle
 
 
 @st.cache_data
