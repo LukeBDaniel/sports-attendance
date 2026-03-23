@@ -341,8 +341,17 @@ YANKEES_RIVALRY_ABBRS = {"BOS", "NYM"}
 
 
 # ── Cached loaders ─────────────────────────────────────────────────────────────
+@st.cache_data
+def load_metrics(path: str) -> dict | None:
+    """Lightweight loader — extracts metrics only, no SHAP. Used by the About page."""
+    if not os.path.exists(path):
+        return None
+    return joblib.load(path).get("metrics")
+
+
 @st.cache_resource
 def load_model(path: str):
+    """Full loader — also builds SHAP explainer. Only called for the active team."""
     if not os.path.exists(path):
         return None
     bundle = joblib.load(path)
@@ -500,10 +509,9 @@ def main():
 
         team_rows = []
         for key, c in TEAMS.items():
-            bundle = load_model(c["model_path"])
-            has_model = bundle is not None
-            r2  = f"{bundle['metrics']['r2']:.3f}" if has_model else "—"
-            mae_fans = f"{int(bundle['metrics']['mae'] * c['capacity']):,}" if has_model else "—"
+            metrics = load_metrics(c["model_path"])
+            r2       = f"{metrics['r2']:.3f}" if metrics else "—"
+            mae_fans = f"{int(metrics['mae'] * c['capacity']):,}" if metrics else "—"
             team_rows.append({
                 "Team": key,
                 "Stadium": c["stadium"],
